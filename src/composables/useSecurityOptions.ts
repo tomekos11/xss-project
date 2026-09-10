@@ -4,9 +4,11 @@ interface Options {
   isActive: 0 | 1
 }
 
-let clickacjingSecurityEnabled = false;
-let xssSecurityEnabled = false;
-let httpsEnabled = true;
+let xFrameOptionsEnabled = false
+let cspFrameAncestorsEnabled = false
+let xssSecurityEnabled = false
+let cspScriptSrcEnabled = false
+let httpsEnabled = true
 
 export const useSecurityOptions = () => {
   const init = async () => {
@@ -15,9 +17,14 @@ export const useSecurityOptions = () => {
     try {
       const { data: options } = await api.get<Options[]>('/security')
 
-      clickacjingSecurityEnabled =
-        !!options.find((el) => el.name === 'clickjacking')?.isActive || false
-      xssSecurityEnabled = !!options.find((el) => el.name === 'xss')?.isActive || false
+      xFrameOptionsEnabled =
+        !!options.find((el) => el.name === 'x-frame-options')?.isActive || false
+      cspFrameAncestorsEnabled =
+        !!options.find((el) => el.name === 'csp-frame-ancestors')?.isActive || false
+      xssSecurityEnabled =
+        !!options.find((el) => el.name === 'csp-connect-src')?.isActive || false
+      cspScriptSrcEnabled =
+        !!options.find((el) => el.name === 'csp-script-src')?.isActive || false
     } catch (e) {
       console.warn(
         'Aby poprawnie działał front - musisz włączyć backend. Wynika to z faktu, że trzeba ustalić sesje + pobrać opcje zabezpieczeń.',
@@ -25,12 +32,20 @@ export const useSecurityOptions = () => {
     }
   }
 
-  const setClickacjingSecurityEnabled = (newVal: boolean) => {
-    clickacjingSecurityEnabled = newVal
+  const setXFrameOptionsEnabled = (newVal: boolean) => {
+    xFrameOptionsEnabled = newVal
+  }
+
+  const setCspFrameAncestorsEnabled = (newVal: boolean) => {
+    cspFrameAncestorsEnabled = newVal
   }
 
   const setXssSecurityEnabled = (newVal: boolean) => {
     xssSecurityEnabled = newVal
+  }
+
+  const setCspScriptSrcEnabled = (newVal: boolean) => {
+    cspScriptSrcEnabled = newVal
   }
 
   const setHttpsEnabled = (newVal: boolean) => {
@@ -38,11 +53,15 @@ export const useSecurityOptions = () => {
   }
 
   return {
-    clickacjingSecurityEnabled,
+    xFrameOptionsEnabled,
+    cspFrameAncestorsEnabled,
     xssSecurityEnabled,
+    cspScriptSrcEnabled,
     httpsEnabled,
-    setClickacjingSecurityEnabled,
+    setXFrameOptionsEnabled,
+    setCspFrameAncestorsEnabled,
     setXssSecurityEnabled,
+    setCspScriptSrcEnabled,
     setHttpsEnabled,
     init,
   }
