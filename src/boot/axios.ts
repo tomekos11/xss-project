@@ -1,5 +1,6 @@
 import { defineBoot } from '#q-app/wrappers'
 import axios, { type AxiosInstance } from 'axios'
+import https from 'node:https'
 
 declare module 'vue' {
   interface ComponentCustomProperties {
@@ -25,7 +26,13 @@ const getCsrfToken = () => {
 // "export default () => {}" function below (which runs individually
 // for each client)
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL, withCredentials: true })
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL,
+  withCredentials: true,
+  ...(import.meta.env.SSR && import.meta.env.DEV
+    ? { httpsAgent: new https.Agent({ rejectUnauthorized: false }) }
+    : {}),
+})
 
 export default defineBoot(({ app }) => {
   // for use inside Vue files (Options API) through this.$axios and this.$api
