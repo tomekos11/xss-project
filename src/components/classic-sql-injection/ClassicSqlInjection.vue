@@ -13,7 +13,7 @@
           <q-input v-model.trim="username" label="Login" outlined class="q-my-md"
             style="width: 40%; min-width: min(300px, 100%)" />
 
-          <q-input v-model.trim="password" type="password" label="Hasło" outlined class="q-my-md"
+          <q-input v-model.trim="password" label="Hasło (payload SQL)" outlined class="q-my-md"
             style="width: 40%; min-width: min(300px, 100%)" />
 
           <q-btn color="primary" type="submit" label="Zaloguj się" />
@@ -26,9 +26,17 @@
         <p v-if="loginSuccess" class="text-positive text-bold">
           ✅ Zalogowano pomyślnie!
         </p>
+        <p v-else-if="blockedBy" class="text-negative text-bold">
+          🛡️ Zablokowano przez: {{ blockedBy }}
+        </p>
         <p v-else class="text-negative text-bold">
           ❌ Błędny login lub hasło.
         </p>
+      </q-card-section>
+
+      <q-card-section v-if="loginAttempted && !loginSuccess && loginError">
+        <p class="text-warning text-bold">Szczegóły odpowiedzi serwera:</p>
+        <pre class="server-error-details">{{ loginError }}</pre>
       </q-card-section>
 
       <q-card-section v-if="loginSuccess">
@@ -45,11 +53,11 @@
       <q-expansion-item expand-separator icon="question_mark" label="Pokaż podpowiedź">
         <q-card style="max-width: 600px">
           <q-card-section>
-            Możesz spróbować zalogować się, wpisując w pole login jedną z poniższych wartości:
+            Możesz spróbować zalogować się na kilka sposobów:
             <ul>
-              <li><code>' OR 1=1 --</code></li>
-              <li><code>' OR username = 'admin' --</code></li>
-              <li><code>' OR id = 1 --</code></li>
+              <li>W polu <strong>login</strong>: <code>' OR 1=1 --</code></li>
+              <li>W polu <strong>login</strong>: <code>' OR username = 'admin' --</code></li>
+              <li>W polu <strong>hasło</strong> (login: <code>admin</code>): <code>' OR 1=1 --</code></li>
             </ul>
           </q-card-section>
           <q-card-section>
@@ -221,16 +229,16 @@ const username = ref<string>('') // Login użytkownika
 const password = ref<string>('') // Hasło
 const loginAttempted = ref<boolean>(false) // Czy próba logowania miała miejsce?
 const loginSuccess = ref<boolean>(false) // Czy logowanie się udało?
+const loginError = ref<string | null>(null)
+const blockedBy = ref<string | null>(null)
 
 const userStore = useUserStore()
 
 const conditionOptions = ref([
-  { label: "OR 1=1 --", value: "' OR 1=1 --" },
-  { label: "OR username = 'admin' --", value: "' OR username = 'admin' --" },
-  { label: "OR id = 1 --", value: "' OR id = 1 --" },
-  { label: "OR 'a'='a' --", value: "' OR 'a'='a' --" },
-  { label: "OR username LIKE '%' --", value: "' OR username LIKE '%' --" },
-  { label: "OR EXISTS(SELECT 1 FROM users) --", value: "' OR EXISTS(SELECT 1 FROM users) --" },
+  { label: "OR 1=1 -- (login)", value: "' OR 1=1 --" },
+  { label: "OR username = 'admin' -- (login)", value: "' OR username = 'admin' --" },
+  { label: "OR id = 1 -- (login)", value: "' OR id = 1 --" },
+  { label: "' OR 1=1 -- (hasło, login: admin)", value: "__PASSWORD__' OR 1=1 --" },
 ])
 
 
@@ -238,6 +246,8 @@ const selectedCondition = ref<string>('')
 
 const handleLogin = async () => {
   loginAttempted.value = true
+  loginError.value = null
+  blockedBy.value = null
 
   try {
     const response = await api.post(
@@ -254,16 +264,40 @@ const handleLogin = async () => {
     loginSuccess.value = response.status === 200
 
     await userStore.fetchUserData()
-  } catch (error) {
+  } catch (error: any) {
     console.error(error.response || error)
     loginSuccess.value = false
+
+    const data = error?.response?.data
+    if (data?.blockedBy) {
+      blockedBy.value = data.blockedBy
+      loginError.value = data.error
+    } else if (data?.error) {
+      loginError.value = data.error
+    }
   }
 }
 
 const applyCondition = () => {
   if (selectedCondition.value) {
-    username.value = selectedCondition.value.value
-    password.value = ''
+    const value = selectedCondition.value.value
+    if (value.startsWith('__PASSWORD__')) {
+      username.value = 'admin'
+      password.value = value.replace('__PASSWORD__', '')
+    } else {
+      username.value = value
+      password.value = ''
+    }
   }
 }
 </script>
+
+<style scoped>
+.server-error-details {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  margin: 0;
+}
+</style>

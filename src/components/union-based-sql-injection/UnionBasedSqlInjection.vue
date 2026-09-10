@@ -11,7 +11,7 @@
         <q-form @submit.prevent="handleLogin" class="q-gutter-md">
           <q-input v-model.trim="username" label="Login (payload SQL)" outlined style="width: 100%; max-width: 400px" />
 
-          <q-input v-model.trim="password" type="password" label="Hasło" outlined
+          <q-input v-model.trim="password" label="Hasło (payload SQL)" outlined
             style="width: 100%; max-width: 400px" />
 
           <q-btn color="primary" type="submit" label="Zaloguj się" />
@@ -47,8 +47,11 @@
           <p class="text-bold">✅ Dane posta:</p>
           <pre>{{ post }}</pre>
         </div>
+        <div v-else-if="sqlError">
+          <p class="text-negative text-bold">❌ {{ sqlError }}</p>
+        </div>
         <div v-else>
-          <p class="text-negative text-bold">❌ Błąd: {{ sqlError || 'Nie udało się pobrać posta.' }}</p>
+          <p class="text-negative text-bold">❌ Post nie został znaleziony.</p>
         </div>
       </q-card-section>
     </q-card>
@@ -341,8 +344,17 @@ const fetchPost = async () => {
 
     post.value = response.data
   } catch (error: any) {
-    sqlError.value = error.response?.data?.error || error.message || 'Nieznany błąd'
     post.value = null
+    const status = error.response?.status
+    const data = error.response?.data
+
+    if (status === 404) {
+      sqlError.value = null
+    } else if (data?.blockedBy) {
+      sqlError.value = `[${data.blockedBy}] ${data.error}`
+    } else {
+      sqlError.value = data?.error || error.message || 'Nie udało się pobrać posta.'
+    }
   } finally {
     requestMade.value = true
   }

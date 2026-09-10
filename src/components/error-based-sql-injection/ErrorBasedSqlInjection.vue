@@ -23,8 +23,11 @@
         <p v-if="post" class="text-positive text-bold">
           ✅ Post został znaleziony!
         </p>
-        <p v-else class="text-negative text-bold">
-          ❌ Post nie został znaleziony.
+        <p v-else-if="notFound" class="text-negative text-bold">
+          ❌ Post nie został znaleziony (zapytanie wykonało się, ale wynik jest pusty — to nie jest błąd SQL).
+        </p>
+        <p v-else-if="blockedBy" class="text-negative text-bold">
+          🛡️ Zablokowano przez: {{ blockedBy }}
         </p>
       </q-card-section>
 
@@ -36,7 +39,7 @@
 
       <q-card-section v-if="sqlError">
         <p class="text-warning text-bold">💥 Błąd SQL:</p>
-        <pre>{{ sqlError }}</pre>
+        <span>{{ sqlError }}</span>
       </q-card-section>
     </q-card>
 
@@ -44,7 +47,7 @@
       <q-expansion-item expand-separator icon="question_mark" label="Pokaż podpowiedź">
         <q-card style="max-width: 600px">
           <q-card-section>
-            <p>Spróbuj w polu login użyć payloadu generującego błąd:</p>
+            <p>Spróbuj w polu <strong>ID posta</strong> użyć payloadu generującego błąd lub sterującego logiką SQL:</p>
             <ul>
               <ul>
 
@@ -62,8 +65,8 @@
 
                 <li>
                   <pre><code>1 AND 1=0 --</code></pre>
-                  <p>➡️ <code>Zawsze fałsz</code> – jeśli strona zwróci pusty wynik lub błąd, to wiemy, że możemy
-                    sterować logiką SQL przez nasz payload.</p>
+                  <p>➡️ <code>Zawsze fałsz</code> – jeśli strona zwróci pusty wynik, to wiemy, że możemy
+                    sterować logiką SQL przez nasz payload (404, nie błąd SQL).</p>
                 </li>
 
                 <li>
@@ -75,13 +78,13 @@
                 <li>
                   <pre><code>1 UNION SELECT 1,2,3 --</code></pre>
                   <p>➡️ <code>Test UNION</code> – próbujemy połączyć nasze dane z wynikami zapytania oryginalnego.
-                    Liczba wartości musi się zgadzać z liczbą kolumn.</p>
+                    Liczba wartości musi się zgadzać z liczbą kolumn — inaczej zobaczysz błąd SQL.</p>
                 </li>
 
                 <li>
                   <pre><code>1 AND SUBSTR((SELECT sqlite_version()), 1, 1) = '3' --</code></pre>
-                  <p>➡️ <code>Warunkowa prawda</code> – jeśli trafimy w warunek (np. wersja SQLite zaczyna się od '3'),
-                    zapytanie działa. Użyteczne do wycieku danych znak po znaku.</p>
+                  <p>➡️ <code>Warunkowa prawda</code> – jeśli warunek jest prawdziwy i post o ID=1 istnieje, zobaczysz
+                    wynik. Użyj istniejącego ID (np. 1), nie 111.</p>
                 </li>
 
                 <li>
@@ -93,7 +96,7 @@
                 <li>
                   <pre><code>1 AND not_a_function() --</code></pre>
                   <p>➡️ <code>Błąd: no such function</code> – używamy nieistniejącej funkcji, by wymusić błąd serwera.
-                    To technika do wykrywania Blind SQLi przez obserwację błędów.</p>
+                    To technika error-based SQLi — szczegóły błędu powinny być widoczne poniżej.</p>
                 </li>
 
               </ul>
@@ -122,15 +125,15 @@
             <p>Oto przykład uproszczonego kodu backendowego w Node.js z użyciem SQLite:</p>
             <pre><code>
 // NIEBEZPIECZNE! Wstrzykiwanie bez walidacji:
-const query = `SELECT * FROM users WHERE username = '${req.body.username}' AND password = '${req.body.password}'`
+const query = `SELECT * FROM posts WHERE id = ${req.query.id}`
 
 db.get(query, (err, row) => {
   if (err) {
     res.status(500).json({ error: err.message })  // Tu ujawniany jest błąd SQL
   } else if (row) {
-    res.json({ success: true, user: row })
+    res.json(row)
   } else {
-    res.status(401).json({ success: false })
+    res.status(404).json({ error: 'Post nie został znaleziony' })
   }
 })
       </code></pre>
@@ -149,30 +152,48 @@ db.get(query, (err, row) => {
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { api } from 'src/boot/axios'
+  import { ref } from 'vue'
+  import { api } from 'src/boot/axios'
 
-const postId = ref<string>('')
-const post = ref<any | null>(null)
-const sqlError = ref<string | null>(null)
-const requestMade = ref(false)
+  const postId = ref<string>('1')
+  const post = ref<any | null>(null)
+  const sqlError = ref<string | null>(null)
+  const notFound = ref(false)
+  const blockedBy = ref<string | null>(null)
+  const requestMade = ref(false)
 
-const fetchPost = async () => {
-  post.value = null
-  sqlError.value = null
-  requestMade.value = false
-
-  try {
-    const response = await api.get('/post', {
-      params: { id: postId.value },
-    });
-
-    post.value = response.data
-  } catch (error) {
+  const fetchPost = async () => {
     post.value = null
-    sqlError.value = error?.response?.data?.error || 'Nieznany błąd'
-  } finally {
-    requestMade.value = true
+    sqlError.value = null
+    notFound.value = false
+    blockedBy.value = null
+    requestMade.value = false
+
+    try {
+      const response = await api.get('/post', {
+        params: { id: postId.value },
+      })
+
+      post.value = response.data
+    } catch (error: any) {
+      post.value = null
+      const status = error?.response?.status
+      const data = error?.response?.data
+
+      if (status === 404) {
+        notFound.value = true
+      } else if (status === 500 && (data?.sqlError || data?.error)) {
+        sqlError.value = data.error
+      } else if (data?.blockedBy) {
+        blockedBy.value = data.blockedBy
+        sqlError.value = data.error
+      } else if (data?.error) {
+        sqlError.value = data.error
+      } else {
+        sqlError.value = error.message || 'Nieznany błąd'
+      }
+    } finally {
+      requestMade.value = true
+    }
   }
-}
 </script>
